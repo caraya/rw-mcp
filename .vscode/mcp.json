@@ -1,0 +1,14 @@
+{
+  "servers": {
+    "rw-mcp": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/bin/rw-mcp",
+      "args": [
+        "stdio",
+        "--database",
+        "${workspaceFolder}/data/sample.db"
+      ],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}
