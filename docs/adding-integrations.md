@@ -151,7 +151,7 @@ The current `agent_run` and `agent_invoke` tools are prompt-in/text-out adapters
 
 ### Load Agents and Skills from a Local Checkout
 
-Agent and skill files are Markdown instructions, not Go packages or executable plugins. To make the files in [`caraya/agent-skills`](https://github.com/caraya/agent-skills) available to this MCP server, check out that repository locally and set `RW_MCP_AGENT_SKILLS_DIR` to its root. The server scans Markdown files at startup and does not download content from GitHub during tool calls.
+Agent and skill files are Markdown instructions, not Go packages or executable plugins. To make the files in [`caraya/agent-skills`](https://github.com/caraya/agent-skills) available to this MCP server, check out that repository locally and set `RW_MCP_AGENT_SKILLS_DIR` to its root. The server scans Markdown files at startup and does not download content from GitHub during tool calls. Pinning is optional; set `RW_MCP_AGENT_SKILLS_SHA` to a full commit SHA when reproducible prompt content is required. At startup, the server checks that Git `HEAD` matches and rejects modified checkout state, untracked files, and ignored Markdown files. A SHA requires `RW_MCP_AGENT_SKILLS_DIR`; the server does not clone or update the checkout.
 
 Supported primary prompt layouts include `agents/<agent>/agent.md` (and flat `agents/<agent>.md`) and `skills/<skill>/SKILL.md`. Other Markdown files in the checkout, including `references/` content, are exposed as resources. Files are bounded when loading: at most 512 Markdown files, 1 MiB per file, and 16 MiB total. The operator-selected directory is trusted input; its content becomes part of prompts sent to the configured agent executable.
 
@@ -168,6 +168,7 @@ Example server environment:
 RW_MCP_AGENT_COMMAND=/absolute/path/to/agent
 RW_MCP_AGENT_ARGS='["--print"]'
 RW_MCP_AGENT_SKILLS_DIR=/absolute/path/to/agent-skills
+RW_MCP_AGENT_SKILLS_SHA=$(git -C /path/to/agent-skills rev-parse HEAD)  # Optional; omit for an unpinned checkout
 ```
 
 The implementation is in [internal/tools/agent/catalog.go](../internal/tools/agent/catalog.go) and [internal/tools/agent/register.go](../internal/tools/agent/register.go); startup wiring is in [internal/server/server.go](../internal/server/server.go) and [internal/cli/root.go](../internal/cli/root.go). The catalog is loaded at startup, so restart the server after changing checkout contents.

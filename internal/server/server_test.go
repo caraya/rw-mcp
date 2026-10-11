@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,5 +130,43 @@ func TestConfiguredAgentToolIsRegistered(t *testing.T) {
 		if !found[name] {
 			t.Errorf("ListTools() missing %q", name)
 		}
+	}
+}
+
+func TestConfiguredAgentSkillsSHARejectsMismatch(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "sample.db")
+	if err := database.Initialize(databasePath); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	agentSkillsDirectory := t.TempDir()
+	agentPromptPath := filepath.Join(agentSkillsDirectory, "agents", "example", "agent.md")
+	if err := os.MkdirAll(filepath.Dir(agentPromptPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(agentPromptPath, []byte("# Example Agent\nFollow the task."), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, agentSkillsDirectory, "init", "--quiet")
+	runGit(t, agentSkillsDirectory, "add", ".")
+	runGit(t, agentSkillsDirectory, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "initial")
+
+	_, store, err := New(Config{
+		DatabasePath:   databasePath,
+		AgentSkillsDir: agentSkillsDirectory,
+		AgentSkillsSHA: strings.Repeat("0", 40),
+	})
+	if err == nil {
+		if store != nil {
+			_ = store.Close()
+		}
+		t.Fatal("New() error = nil for a mismatched agent skills SHA")
+	}
+}
+
+func runGit(t *testing.T, directory string, args ...string) {
+	t.Helper()
+	commandArgs := append([]string{"-C", directory}, args...)
+	if output, err := exec.Command("git", commandArgs...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v error = %v, output = %s", args, err, output)
 	}
 }

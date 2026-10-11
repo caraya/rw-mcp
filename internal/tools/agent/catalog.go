@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -132,6 +133,66 @@ func LoadCatalog(directory string) (*Catalog, error) {
 		return nil, fmt.Errorf("agent-skills directory %q contains no Markdown files", directory)
 	}
 	return catalog, nil
+}
+
+func LoadCatalogAtCommit(directory, expectedSHA string) (*Catalog, error) {
+	if strings.TrimSpace(expectedSHA) == "" {
+		return LoadCatalog(directory)
+	}
+	root, err := filepath.Abs(directory)
+	if err != nil {
+		return nil, fmt.Errorf("resolve agent-skills directory: %w", err)
+	}
+	expectedSHA = strings.ToLower(strings.TrimSpace(expectedSHA))
+	if !isFullGitSHA(expectedSHA) {
+		return nil, fmt.Errorf("agent-skills SHA must be a full 40- or 64-character hexadecimal commit ID")
+	}
+	actualSHA, err := gitOutput(root, "rev-parse", "--verify", "HEAD^{commit}")
+	if err != nil {
+		return nil, fmt.Errorf("verify agent-skills Git revision: %w", err)
+	}
+	actualSHA = strings.ToLower(strings.TrimSpace(actualSHA))
+	if actualSHA != expectedSHA {
+		return nil, fmt.Errorf("agent-skills checkout is at %s, expected %s", actualSHA, expectedSHA)
+	}
+	workingTree, err := gitOutput(root, "status", "--porcelain", "--untracked-files=all")
+	if err != nil {
+		return nil, fmt.Errorf("check agent-skills working tree: %w", err)
+	}
+	if strings.TrimSpace(workingTree) != "" {
+		return nil, fmt.Errorf("agent-skills checkout at %s has modified or untracked files", expectedSHA)
+	}
+	ignoredFiles, err := gitOutput(root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+	if err != nil {
+		return nil, fmt.Errorf("check ignored agent-skills files: %w", err)
+	}
+	for _, filename := range strings.Split(ignoredFiles, "\x00") {
+		if strings.EqualFold(filepath.Ext(filename), ".md") {
+			return nil, fmt.Errorf("agent-skills checkout at %s contains ignored Markdown file %q", expectedSHA, filename)
+		}
+	}
+	return LoadCatalog(root)
+}
+
+func isFullGitSHA(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+func gitOutput(directory string, args ...string) (string, error) {
+	commandArgs := append([]string{"-C", directory}, args...)
+	output, err := exec.Command("git", commandArgs...).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %v: %w: %s", args, err, strings.TrimSpace(string(output)))
+	}
+	return string(output), nil
 }
 
 func readCatalogFile(filename string) ([]byte, error) {

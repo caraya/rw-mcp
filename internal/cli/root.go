@@ -61,6 +61,7 @@ func newStdioCommand() *cobra.Command {
 				AgentCommand:          os.Getenv("RW_MCP_AGENT_COMMAND"),
 				AgentArgs:             agentArgs,
 				AgentSkillsDir:        os.Getenv("RW_MCP_AGENT_SKILLS_DIR"),
+				AgentSkillsSHA:        os.Getenv("RW_MCP_AGENT_SKILLS_SHA"),
 			})
 			if err != nil {
 				return err

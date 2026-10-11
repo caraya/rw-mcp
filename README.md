@@ -99,6 +99,8 @@ Configure an installed agent executable in the MCP server process environment:
 RW_MCP_AGENT_COMMAND=/absolute/path/to/agent
 RW_MCP_AGENT_ARGS='["--print"]'
 RW_MCP_AGENT_SKILLS_DIR=/absolute/path/to/agent-skills
+# Optional: full Git commit SHA to pin the skills checkout
+RW_MCP_AGENT_SKILLS_SHA=$(git -C /path/to/agent-skills rev-parse HEAD)
 ```
 
 `RW_MCP_AGENT_ARGS` is a JSON array of fixed argv values. The prompt is appended as one final argument and is not interpreted by a shell. Agent calls have a 45-second default timeout and a 32 KiB output limit. The child process inherits the server's environment and permissions, so configure an agent command whose capabilities are appropriate for this MCP host.
@@ -109,7 +111,7 @@ The skills directory must be a local checkout containing `agents/` and/or `skill
 git clone https://github.com/caraya/agent-skills.git /path/to/agent-skills
 ```
 
-The server reads Markdown files from that configured directory at startup; it does not fetch or execute remote files. `agent_list_assets` returns stable IDs for discovered agents, skills, resources, and available invocation profiles. `agent_invoke` accepts a task, a policy-supported agent, and optional resources; callers cannot choose skill IDs. `content-editor` always receives `style-lookup` and `code-example-validation`. `polyglot-engineering` and `polyglot-performance` require a `language` of `typescript`, `go`, `rust`, or `python` and receive only that language's core, debugging, formatting, and performance skills. Unsupported agents and languages are rejected. The selected Markdown is included in the prompt passed to `RW_MCP_AGENT_COMMAND`; it is instruction text, not executable code. Configure this directory only with content you trust. Restart the server to load catalog changes. Without `RW_MCP_AGENT_SKILLS_DIR`, the existing free-form `agent_run` tool continues to work when an agent command is configured.
+The server reads Markdown files from that configured directory at startup; it does not fetch or execute remote files. Optionally set `RW_MCP_AGENT_SKILLS_SHA` to a full commit SHA; startup then requires that Git `HEAD` matches and rejects a dirty checkout, untracked Markdown, or ignored Markdown. The SHA setting requires `RW_MCP_AGENT_SKILLS_DIR`. `agent_list_assets` returns stable IDs for discovered agents, skills, resources, and available invocation profiles. `agent_invoke` accepts a task, a policy-supported agent, and optional resources; callers cannot choose skill IDs. `content-editor` always receives `style-lookup` and `code-example-validation`. `polyglot-engineering` and `polyglot-performance` require a `language` of `typescript`, `go`, `rust`, or `python` and receive only that language's core, debugging, formatting, and performance skills. Unsupported agents and languages are rejected. The selected Markdown is included in the prompt passed to `RW_MCP_AGENT_COMMAND`; it is instruction text, not executable code. Configure this directory only with content you trust. Restart the server to load catalog changes. Without `RW_MCP_AGENT_SKILLS_DIR`, the existing free-form `agent_run` tool continues to work when an agent command is configured.
 
 Agent and skill invocations are intentionally isolated from the other tools registered by `rw-mcp`: `agent_invoke` receives selected local Markdown and a task, not this server's MCP tool schemas or handlers. The MCP host can call those tools separately. The configured executable still runs with its own setup and the server process's operating-system permissions; this integration does not sandbox it or grant it access to other `rw-mcp` tools.
 
@@ -148,7 +150,7 @@ Build all configured targets locally without publishing:
 goreleaser build --clean
 ```
 
-Artifacts are written to `dist/`. To publish a GitHub release, create and push a semantic version tag, then run `goreleaser release --clean` with a `GITHUB_TOKEN` that can create releases in the repository. The local build command does not publish anything.
+Artifacts are written to `dist/`. To publish a GitHub release, create and push a semantic version tag, then run `goreleaser release --clean` with a `GITHUB_TOKEN`. Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) scoped to the target repository and grant the **Contents: Read and write** repository permission so GoReleaser can create the release and upload its assets. Keep the token in an environment variable or secret store; do not commit or log it. The local build command does not publish anything.
 
 ## Validate and Build
 

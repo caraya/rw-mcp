@@ -1,9 +1,11 @@
 package server
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/carlos/rw-mcp/internal/buildinfo"
@@ -25,11 +27,15 @@ type Config struct {
 	AgentCommand          string
 	AgentArgs             []string
 	AgentSkillsDir        string
+	AgentSkillsSHA        string
 	AgentTimeout          time.Duration
 	AgentMaxOutput        int
 }
 
 func New(config Config) (*mcp.Server, *database.Store, error) {
+	if strings.TrimSpace(config.AgentSkillsSHA) != "" && strings.TrimSpace(config.AgentSkillsDir) == "" {
+		return nil, nil, fmt.Errorf("RW_MCP_AGENT_SKILLS_SHA requires RW_MCP_AGENT_SKILLS_DIR")
+	}
 	store, err := database.OpenReadOnly(config.DatabasePath)
 	if err != nil {
 		return nil, nil, err
@@ -61,6 +67,14 @@ func New(config Config) (*mcp.Server, *database.Store, error) {
 	database.RegisterTools(mcpServer, store)
 
 	var runner agent.Runner
+	var catalog *agent.Catalog
+	if config.AgentSkillsDir != "" {
+		catalog, err = agent.LoadCatalogAtCommit(config.AgentSkillsDir, config.AgentSkillsSHA)
+		if err != nil {
+			_ = store.Close()
+			return nil, nil, err
+		}
+	}
 	if config.AgentCommand != "" {
 		commandRunner, err := agent.NewCommandRunner(config.AgentCommand, config.AgentArgs, config.AgentTimeout, config.AgentMaxOutput)
 		if err != nil {
@@ -70,12 +84,7 @@ func New(config Config) (*mcp.Server, *database.Store, error) {
 		runner = commandRunner
 		agent.RegisterTool(mcpServer, runner)
 	}
-	if config.AgentSkillsDir != "" {
-		catalog, err := agent.LoadCatalog(config.AgentSkillsDir)
-		if err != nil {
-			_ = store.Close()
-			return nil, nil, err
-		}
+	if catalog != nil {
 		agent.RegisterCatalogTools(mcpServer, catalog, runner)
 	}
 

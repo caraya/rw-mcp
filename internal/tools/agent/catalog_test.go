@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -226,6 +227,44 @@ func TestPolyglotAgentsResolveOneLanguageBundle(t *testing.T) {
 	if _, err := resolveAgentSkills("polyglot-engineering", "javascript"); err == nil {
 		t.Fatal("resolveAgentSkills() error = nil for unsupported language")
 	}
+}
+
+func TestLoadCatalogAtCommit(t *testing.T) {
+	assetsDir := t.TempDir()
+	writeAsset(t, assetsDir, "agents/content-editor/agent.md", "# Content Editor\nReview content.")
+	writeAsset(t, assetsDir, ".gitignore", "ignored.md\n")
+	gitCommand(t, assetsDir, "init", "--quiet")
+	gitCommand(t, assetsDir, "add", ".")
+	gitCommand(t, assetsDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "initial")
+	commitSHA := strings.TrimSpace(gitCommand(t, assetsDir, "rev-parse", "HEAD"))
+
+	if _, err := LoadCatalogAtCommit(assetsDir, commitSHA); err != nil {
+		t.Fatalf("LoadCatalogAtCommit() matching revision error = %v", err)
+	}
+	if _, err := LoadCatalogAtCommit(assetsDir, strings.Repeat("0", len(commitSHA))); err == nil {
+		t.Fatal("LoadCatalogAtCommit() error = nil for a mismatched revision")
+	}
+	writeAsset(t, assetsDir, "ignored.md", "# Ignored Resource\nNot committed.")
+	if _, err := LoadCatalogAtCommit(assetsDir, commitSHA); err == nil {
+		t.Fatal("LoadCatalogAtCommit() error = nil for an ignored Markdown file")
+	}
+	if err := os.Remove(filepath.Join(assetsDir, "ignored.md")); err != nil {
+		t.Fatalf("Remove(ignored Markdown file) error = %v", err)
+	}
+	writeAsset(t, assetsDir, "extra.md", "# Extra Resource\nNot committed.")
+	if _, err := LoadCatalogAtCommit(assetsDir, commitSHA); err == nil {
+		t.Fatal("LoadCatalogAtCommit() error = nil for an untracked Markdown file")
+	}
+}
+
+func gitCommand(t *testing.T, directory string, args ...string) string {
+	t.Helper()
+	commandArgs := append([]string{"-C", directory}, args...)
+	output, err := exec.Command("git", commandArgs...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v error = %v, output = %s", args, err, output)
+	}
+	return string(output)
 }
 
 func writeAsset(t *testing.T, root, relativePath, content string) {
