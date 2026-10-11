@@ -42,10 +42,13 @@ func newStdioCommand() *cobra.Command {
 				return err
 			}
 			mcpServer, store, err := server.New(server.Config{
-				DatabasePath: databasePath,
-				GitHubToken:  os.Getenv("GITHUB_TOKEN"),
-				AgentCommand: os.Getenv("RW_MCP_AGENT_COMMAND"),
-				AgentArgs:    agentArgs,
+				DatabasePath:          databasePath,
+				GitHubToken:           os.Getenv("GITHUB_TOKEN"),
+				NWSUserAgent:          os.Getenv("NWS_USER_AGENT"),
+				OpenMeteoGeocodingURL: os.Getenv("OPEN_METEO_GEOCODING_URL"),
+				OpenMeteoAPIKey:       os.Getenv("OPEN_METEO_API_KEY"),
+				AgentCommand:          os.Getenv("RW_MCP_AGENT_COMMAND"),
+				AgentArgs:             agentArgs,
 			})
 			if err != nil {
 				return err

@@ -31,8 +31,13 @@ For development, you can run directly from source with `go run ./cmd/rw-mcp stdi
 
 - `github_get_public_repository` calls `GET /repos/{owner}/{repo}` without sending a token.
 - `github_get_authenticated_user` calls `GET /user` with `GITHUB_TOKEN`. It returns a tool error if the token is unset; the other tools remain available.
+- `nws_get_forecast` fetches a U.S. National Weather Service forecast by latitude/longitude or U.S. city/postal code. Place names are geocoded through Open-Meteo; include the state when a name may be ambiguous. Coordinates are also accepted directly.
 - `database_list_notes` and `database_get_note` use fixed, parameterized queries against the configured SQLite file. The server opens that file in SQLite read-only mode; it does not accept arbitrary SQL.
 - `agent_run` is registered only when `RW_MCP_AGENT_COMMAND` is set. The executable and fixed arguments come from server configuration, never from tool input.
+
+## Extend the Server
+
+See [docs/adding-integrations.md](docs/adding-integrations.md) for adding typed tools, outbound API integrations, agent adapters, and connections to other MCP servers.
 
 ### Create a GitHub Token
 
@@ -43,6 +48,12 @@ To enable `github_get_authenticated_user`:
 3. Generate the token and copy it when GitHub displays it. Treat it like a password. GitHub's [token guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) has the full steps and security guidance.
 
 The tool returns public profile fields. If you use a classic personal access token and want the endpoint's private user fields, GitHub requires the `read:user` scope; those fields are not used by this example.
+
+### Weather Geocoding
+
+When `nws_get_forecast` receives a `location`, the server sends that query to Open-Meteo's Geocoding API and uses its coordinates with the U.S.-only NWS forecast API. Do not send confidential location information. Ambiguous names are rejected with candidate city/state values; retry with a state or postal code. Direct latitude/longitude input does not call Open-Meteo.
+
+The default Open-Meteo endpoint is keyless and limited to non-commercial use, with free-tier limits of fewer than 10,000 requests per day, 5,000 per hour, and 600 per minute. Commercial deployments must use an Open-Meteo paid plan and configure its geocoding endpoint and key through `OPEN_METEO_GEOCODING_URL` and `OPEN_METEO_API_KEY`; the server rejects a key without an explicit endpoint to avoid sending credentials to the public endpoint. Keep the key in server environment configuration, never in tool input. Geocoded results include attribution: Open-Meteo location data is based on GeoNames and licensed under CC BY 4.0. See the [Geocoding API documentation](https://open-meteo.com/en/docs/geocoding-api) and [terms](https://open-meteo.com/en/terms).
 
 Provide the token to the server through the MCP host's secret or environment mechanism, not as a tool argument or in checked-in configuration. For VS Code, you can replace `.vscode/mcp.json` with this variant, which asks for the token using a password input instead of storing it in the file:
 

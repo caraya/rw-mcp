@@ -10,17 +10,21 @@ import (
 	"github.com/carlos/rw-mcp/internal/tools/agent"
 	"github.com/carlos/rw-mcp/internal/tools/database"
 	"github.com/carlos/rw-mcp/internal/tools/github"
+	"github.com/carlos/rw-mcp/internal/tools/weather"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type Config struct {
-	DatabasePath     string
-	GitHubToken      string
-	GitHubAPIBaseURL string
-	AgentCommand     string
-	AgentArgs        []string
-	AgentTimeout     time.Duration
-	AgentMaxOutput   int
+	DatabasePath          string
+	GitHubToken           string
+	GitHubAPIBaseURL      string
+	NWSUserAgent          string
+	OpenMeteoGeocodingURL string
+	OpenMeteoAPIKey       string
+	AgentCommand          string
+	AgentArgs             []string
+	AgentTimeout          time.Duration
+	AgentMaxOutput        int
 }
 
 func New(config Config) (*mcp.Server, *database.Store, error) {
@@ -42,6 +46,14 @@ func New(config Config) (*mcp.Server, *database.Store, error) {
 
 	githubClient := github.NewClient(&http.Client{Timeout: 15 * time.Second}, config.GitHubToken, config.GitHubAPIBaseURL)
 	github.RegisterTools(mcpServer, githubClient)
+	weatherHTTPClient := &http.Client{Timeout: 15 * time.Second}
+	nwsClient := weather.NewClient(weatherHTTPClient, "", config.NWSUserAgent)
+	geocoder, err := weather.NewGeocoder(weatherHTTPClient, config.OpenMeteoGeocodingURL, config.OpenMeteoAPIKey)
+	if err != nil {
+		_ = store.Close()
+		return nil, nil, err
+	}
+	weather.RegisterTool(mcpServer, nwsClient, geocoder)
 	database.RegisterTools(mcpServer, store)
 
 	if config.AgentCommand != "" {

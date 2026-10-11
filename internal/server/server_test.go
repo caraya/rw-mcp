@@ -50,6 +50,7 @@ func TestNewRegistersDefaultToolsWithoutCredentials(t *testing.T) {
 	for _, name := range []string{
 		"github_get_public_repository",
 		"github_get_authenticated_user",
+		"nws_get_forecast",
 		"database_list_notes",
 		"database_get_note",
 	} {
