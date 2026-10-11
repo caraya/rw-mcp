@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -38,6 +39,42 @@ func TestStdioSubprocessToolCallAndGracefulEOF(t *testing.T) {
 	}
 	if result.IsError || len(result.Content) == 0 {
 		t.Fatalf("CallTool() result = %+v", result)
+	}
+
+	docsResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "cli_get_documentation",
+		Arguments: map[string]any{"format": "markdown"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(cli_get_documentation) error = %v; stderr: %s", err, stderr.String())
+	}
+	if docsResult.IsError {
+		t.Fatalf("CallTool(cli_get_documentation) returned tool error: %v", docsResult.GetError())
+	}
+	docsJSON, err := json.Marshal(docsResult.StructuredContent)
+	if err != nil {
+		t.Fatalf("Marshal(docs structured content) error = %v", err)
+	}
+	var docs struct {
+		Documents []struct {
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		} `json:"documents"`
+	}
+	if err := json.Unmarshal(docsJSON, &docs); err != nil {
+		t.Fatalf("Unmarshal(docs structured content) error = %v", err)
+	}
+	foundRoot, foundStdio := false, false
+	for _, page := range docs.Documents {
+		if page.Name == "rw-mcp.md" && page.Content != "" {
+			foundRoot = true
+		}
+		if page.Name == "rw-mcp_stdio.md" && page.Content != "" {
+			foundStdio = true
+		}
+	}
+	if !foundRoot || !foundStdio {
+		t.Fatalf("documentation tool did not return root and stdio pages: %+v", docs.Documents)
 	}
 	if err := clientSession.Close(); err != nil {
 		t.Fatalf("ClientSession.Close() error = %v; stderr: %s", err, stderr.String())

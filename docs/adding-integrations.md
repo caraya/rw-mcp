@@ -4,12 +4,14 @@ This guide describes how to extend this MCP server with local tools, configured 
 
 ## Add a Tool
 
-Put a cohesive integration under `internal/tools/<name>/`. Keep its service/client logic separate from MCP registration where practical, and expose a `RegisterTools` function. The current examples are in [internal/tools/github/register.go](internal/tools/github/register.go) and [internal/tools/database/register.go](internal/tools/database/register.go).
+For a tool that this server should expose to MCP clients, put its implementation in its own package under `internal/tools/<name>/`. This is the default location for server-owned tools; keep tool implementation out of `cmd/`. Go's `internal/` visibility rule prevents other modules from importing these packages, so put a library intended for reuse outside this server in a non-`internal/` package or a separate module. Keep API or domain logic separate from MCP registration when that makes the package easier to test. Follow the existing file layout where useful: `client.go` for an outbound service client, `register.go` for MCP registration, and focused `*_test.go` files beside the code they cover. Small tools do not need empty or boilerplate files just to match that layout. See [internal/tools/github](../internal/tools/github/), [internal/tools/database](../internal/tools/database/), and [internal/tools/weather](../internal/tools/weather/).
 
-The SDK's typed `mcp.AddTool` API infers input and output schemas from Go types, validates incoming arguments, returns typed structured output, and converts handler errors into tool execution errors. Use JSON and `jsonschema` tags to make the public schema clear:
+For every tool intended to be callable over MCP, add package-level registration with the SDK's typed `mcp.AddTool` API and wire it into `server.New`. Use a `RegisterTool` or `RegisterTools` function, depending on whether the package exposes one or several tools. Construct dependencies in the server from trusted configuration and pass them to registration; do not let tool arguments choose credentials, arbitrary commands, or unrestricted service endpoints.
+
+The typed API infers input and output schemas from the handler's Go types, validates incoming arguments, returns typed structured output, and converts handler errors into tool execution errors. JSON struct tags define field names, and `jsonschema` tags provide descriptions and constraints. There is no tool-source generator or scaffolding command in this repository: write the Go input/output types and typed registration, and the SDK builds the MCP schemas at registration time. The live echo tool in [internal/tools/echo/register.go](../internal/tools/echo/register.go) demonstrates this pattern:
 
 ```go
-package example
+package echo
 
 import (
   "context"
@@ -17,32 +19,80 @@ import (
   "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-type EchoInput struct {
-  Text string `json:"text" jsonschema:"Text to echo"`
+type Input struct {
+  Text string `json:"text" jsonschema:"Text to echo back unchanged"`
 }
 
-type EchoOutput struct {
-  Text string `json:"text" jsonschema:"Echoed text"`
+type Output struct {
+  Text string `json:"text" jsonschema:"The supplied text, echoed unchanged"`
 }
 
-func Register(server *mcp.Server) {
+func RegisterTool(server *mcp.Server) {
   mcp.AddTool(server, &mcp.Tool{
-    Name:        "example_echo",
+    Name:        "echo_text",
     Title:       "Echo text",
-    Description: "Return the supplied text.",
-  }, func(_ context.Context, _ *mcp.CallToolRequest, input EchoInput) (*mcp.CallToolResult, EchoOutput, error) {
-    return nil, EchoOutput{Text: input.Text}, nil
+    Description: "Return the supplied text unchanged.",
+    Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+  }, func(_ context.Context, _ *mcp.CallToolRequest, input Input) (*mcp.CallToolResult, Output, error) {
+    return nil, Output{Text: input.Text}, nil
   })
 }
 ```
 
-Register it from [internal/server/server.go](internal/server/server.go), after constructing its dependencies:
+Wire it into [internal/server/server.go](internal/server/server.go):
 
 ```go
-example.Register(mcpServer)
+echo.RegisterTool(mcpServer)
 ```
 
-Keep names unique, descriptions specific, and registration order deterministic. Tool annotations such as `ReadOnlyHint` are client-facing hints, not authorization checks. Enforce access controls in the handler and its dependencies.
+Keep names unique, descriptions specific, and registration order deterministic. Add the registration whenever a new tool should be visible to clients; a helper package that is not an MCP tool does not need registration.
+
+Add tests with the tool. At minimum, test the behavior that matters at the tool's boundary. For outbound APIs, use `httptest` to cover request construction, response decoding, and failure handling. For tool registration, add or extend a server test that connects over the SDK's in-memory transport and checks `ListTools` for the tool name; call it as well when input/output behavior or structured results need verification. Use existing focused tests as patterns: [internal/tools/weather/register_test.go](../internal/tools/weather/register_test.go) exercises a registered tool, and [internal/server/server_test.go](../internal/server/server_test.go) checks discovery. Tool annotations such as `ReadOnlyHint` are client-facing hints, not authorization checks. Enforce access controls in the handler and its dependencies.
+
+For a new exposed tool, the usual sequence is:
+
+1. Create `internal/tools/<name>/` and define typed input/output values with JSON and `jsonschema` tags.
+2. Implement the behavior, then add `RegisterTool(s)` using `mcp.AddTool`.
+3. Construct trusted dependencies and register the tool from `internal/server/server.go`.
+4. Add focused behavior tests and verify the tool is discoverable through the server.
+5. Run `go test ./internal/tools/<name> ./internal/server`, then `go test ./...` and `go vet ./...` before handoff.
+
+### Example: Echo Tool
+
+The `echo_text` tool is the smallest complete example in this repository. It has no remote service, credentials, configuration, or domain-specific client, so it needs only a registration file and a package test. The MCP schema is inferred from the Go input/output types; there is no generated schema or separate code-generation step.
+
+| File | Responsibility |
+| --- | --- |
+| [internal/tools/echo/register.go](../internal/tools/echo/register.go) | Defines the typed `Input` and `Output`, their JSON/schema descriptions, the `echo_text` metadata, and `RegisterTool`. The handler returns the input text unchanged. |
+| [internal/tools/echo/register_test.go](../internal/tools/echo/register_test.go) | Connects an in-memory MCP client and server, calls `echo_text`, and checks the structured output. This verifies the tool contract, not just a private helper. |
+| [internal/server/server.go](../internal/server/server.go) | Imports the package and calls `echo.RegisterTool(mcpServer)` so the tool is exposed by the running server. This tool has no dependency to construct. |
+| [internal/server/server_test.go](../internal/server/server_test.go) | Checks that `echo_text` appears in `ListTools` for a default server. This catches a missing server registration even when the tool package's own test passes. |
+| [README.md](../README.md) | Lists `echo_text` in the server's user-facing tool catalog. |
+
+Call it with a text field:
+
+```json
+{
+  "text": "Hello from MCP"
+}
+```
+
+The structured result is:
+
+```json
+{
+  "text": "Hello from MCP"
+}
+```
+
+To verify the example, run the package behavior test and server discovery test, then the repository-wide checks:
+
+```sh
+go test ./internal/tools/echo
+go test ./internal/server -run TestNewRegistersDefaultToolsWithoutCredentials
+go test ./...
+go vet ./...
+```
 
 ## Add an Outbound API Tool
 
@@ -97,13 +147,38 @@ To integrate another agent:
 
 For subprocess adapters, use `exec.CommandContext` with an executable and fixed arguments configured by the operator. Pass model-controlled text only as data; do not build shell command strings or let tool arguments choose an executable, URL, or arbitrary command flags. Preserve the existing timeout and output bounds unless the integration has a justified alternative.
 
+The current `agent_run` and `agent_invoke` tools are prompt-in/text-out adapters. `agent_invoke` adds selected local agent/skill/resource Markdown to the prompt, but it does not forward this server's registered MCP tools to the child process. This is an intentional isolation boundary: agent and skill prompts can select only Markdown assets from the configured checkout, while the MCP host calls `rw-mcp` tools separately. Do not add a bridge from agent execution to this server's tool handlers. The configured executable still has whatever operating-system permissions and separately configured integrations its operator gives it; this MCP integration does not sandbox that process.
+
+### Load Agents and Skills from a Local Checkout
+
+Agent and skill files are Markdown instructions, not Go packages or executable plugins. To make the files in [`caraya/agent-skills`](https://github.com/caraya/agent-skills) available to this MCP server, check out that repository locally and set `RW_MCP_AGENT_SKILLS_DIR` to its root. The server scans Markdown files at startup and does not download content from GitHub during tool calls.
+
+Supported primary prompt layouts include `agents/<agent>/agent.md` (and flat `agents/<agent>.md`) and `skills/<skill>/SKILL.md`. Other Markdown files in the checkout, including `references/` content, are exposed as resources. Files are bounded when loading: at most 512 Markdown files, 1 MiB per file, and 16 MiB total. The operator-selected directory is trusted input; its content becomes part of prompts sent to the configured agent executable.
+
+The MCP surface has two additional tools when this directory is configured:
+
+- `agent_list_assets` lists stable IDs, titles, and checkout-relative paths for available agents, skills, and resources. It is available without an agent executable.
+- `agent_invoke` is available when both `RW_MCP_AGENT_SKILLS_DIR` and `RW_MCP_AGENT_COMMAND` are set. It requires a task and a policy-supported agent, plus optional resources from the catalog. Callers cannot select skills: `content-editor` always receives `style-lookup` and `code-example-validation`; `polyglot-engineering` and `polyglot-performance` require one `language` (`typescript`, `go`, `rust`, or `python`) and receive exactly that language's core, debugging, formatting, and performance skills. `agent_list_assets` reports the supported profiles available in the checkout. Unsupported agents and languages, or profiles with missing skills, are rejected. The tool composes the policy-selected Markdown instructions and resources with the task, then sends the result as one argument to the configured executable. It never accepts a command, filesystem path, or URL from the MCP caller.
+
+The existing `agent_run` remains available with `RW_MCP_AGENT_COMMAND` alone for callers that want to provide a free-form prompt. All execution uses the configured executable's permissions; the Markdown does not sandbox or constrain that executable. Review the agent command and local skill checkout before enabling invocation.
+
+Example server environment:
+
+```sh
+RW_MCP_AGENT_COMMAND=/absolute/path/to/agent
+RW_MCP_AGENT_ARGS='["--print"]'
+RW_MCP_AGENT_SKILLS_DIR=/absolute/path/to/agent-skills
+```
+
+The implementation is in [internal/tools/agent/catalog.go](../internal/tools/agent/catalog.go) and [internal/tools/agent/register.go](../internal/tools/agent/register.go); startup wiring is in [internal/server/server.go](../internal/server/server.go) and [internal/cli/root.go](../internal/cli/root.go). The catalog is loaded at startup, so restart the server after changing checkout contents.
+
 ## Connect to Another MCP Server
 
 Yes. The process can serve its host as an MCP server and also create an `mcp.Client` connection to another MCP server. These are separate MCP connections with opposite roles. This project currently does not create outbound MCP client sessions; it only calls regular HTTP APIs and exposes its own tools.
 
 The SDK supports this directly. For a local MCP subprocess, use `mcp.CommandTransport`; for a remote Streamable HTTP MCP endpoint, use `mcp.StreamableClientTransport`. In either case, create an `mcp.Client`, call `Client.Connect`, and use the returned `ClientSession` methods such as `CallTool`. The SDK's getting-started example shows the subprocess transport pattern: [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk).
 
-A future bridge could connect to a configured remote MCP server and expose selected remote tools through this server. Treat that as a privileged integration:
+A separate outbound MCP client integration could connect this server to a configured remote MCP server for an explicitly designed server-side workflow. It must not expose remote or local MCP tools to `agent_invoke`; preserve the agent/skill isolation boundary above. If such an integration is added for other server workflows, treat it as privileged:
 
 - Keep remote endpoints and subprocess commands in operator configuration, not tool arguments. In particular, do not accept arbitrary URLs or commands from model-controlled input.
 - Configure authentication on the outbound client side and keep credentials out of schemas and logs. This server's stdio transport itself does not require OAuth.
