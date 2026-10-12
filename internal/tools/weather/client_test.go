@@ -26,7 +26,7 @@ func TestGetForecastResolvesPointAndUsesRequiredHeaders(t *testing.T) {
 				"properties": map[string]any{
 					"forecast": server.URL + "/gridpoints/TOP/31,80/forecast",
 					"relativeLocation": map[string]any{"properties": map[string]any{
-						"city": "North Topeka",
+						"city":  "North Topeka",
 						"state": "KS",
 					}},
 				},
@@ -35,12 +35,12 @@ func TestGetForecastResolvesPointAndUsesRequiredHeaders(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"properties": map[string]any{"periods": []any{
 					map[string]any{
-						"name": "This Afternoon",
-						"temperature": 74,
+						"name":            "This Afternoon",
+						"temperature":     74,
 						"temperatureUnit": "F",
-						"shortForecast": "Mostly Sunny",
-						"windSpeed": "5 mph",
-						"windDirection": "S",
+						"shortForecast":   "Mostly Sunny",
+						"windSpeed":       "5 mph",
+						"windDirection":   "S",
 					},
 				}},
 			})

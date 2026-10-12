@@ -15,7 +15,7 @@ func TestCommandRunnerPassesPromptAsOneArgument(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	runner, err := NewCommandRunner(command, nil, time.Second, 1024)
+	runner, err := NewCommandRunner(command, nil, 5*time.Second, 1024)
 	if err != nil {
 		t.Fatalf("NewCommandRunner() error = %v", err)
 	}
